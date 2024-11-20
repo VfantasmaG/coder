@@ -498,7 +498,11 @@ func noExecInAgent(m dsl.Matcher) {
 		`exec.Command($*_)`,
 		`exec.CommandContext($*_)`,
 	).
-		Where(m.File().PkgPath.Matches("/agent/")).
+		Where(
+			m.File().PkgPath.Matches("/agent/") &&
+				!m.File().PkgPath.Matches("/agentexec") &&
+				!m.File().Name.Matches(`_test\.go$`),
+		).
 		Report("The agent and its subpackages should not use exec.Command or exec.CommandContext directly. Consider using agentexec.CommandContext instead.")
 }
 
@@ -512,6 +516,10 @@ func noPTYInAgent(m dsl.Matcher) {
 		`pty.Command($*_)`,
 		`pty.CommandContext($*_)`,
 	).
-		Where(m.File().PkgPath.Matches(`/agent/`)).
+		Where(
+			m.File().PkgPath.Matches(`/agent/`) &&
+				!m.File().PkgPath.Matches(`/agentexec`) &&
+				!m.File().Name.Matches(`_test\.go$`),
+		).
 		Report("The agent and its subpackages should not use pty.Command or pty.CommandContext directly. Consider using agentexec.PTYCommandContext instead.")
 }

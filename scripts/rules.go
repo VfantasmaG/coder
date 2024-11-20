@@ -487,3 +487,17 @@ func workspaceActivity(m dsl.Matcher) {
 			!m.File().Name.Matches(`_test\.go$`),
 	).Report("Updating workspace activity should always be done in the workspacestats package.")
 }
+
+// noExecInAgent ensures that packages under agent/ don't use exec.Command or
+// exec.CommandContext directly.
+//
+//nolint:unused,deadcode,varnamelen
+func noExecInAgent(m dsl.Matcher) {
+	m.Import("os/exec")
+	m.Match(
+		`exec.Command($*_)`,
+		`exec.CommandContext($*_)`,
+	).
+		Where(m.File().PkgPath.Matches("^github.com/coder/coder/agent")).
+		Report("The agent and its subpackages should not use exec.Command or exec.CommandContext directly. Consider using agentexec.CommandContext instead.")
+}

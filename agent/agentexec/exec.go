@@ -34,6 +34,10 @@ func CommandContext(ctx context.Context, cmd string, args ...string) (*exec.Cmd,
 	return exec.CommandContext(ctx, cmd, args...), nil
 }
 
+// PTYCommandContext returns an pty.Cmd that calls "coder agent-exec" prior to exec'ing
+// the provided command if CODER_PROC_PRIO_MGMT is set, otherwise a normal pty.Cmd
+// is returned. All instances of pty.Cmd should flow through this function to ensure
+// proper resource constraints are applied to the child process.
 func PTYCommandContext(ctx context.Context, cmd string, args ...string) (*pty.Cmd, error) {
 	cmd, args, err := agentExecCmd(cmd, args...)
 	if err != nil {

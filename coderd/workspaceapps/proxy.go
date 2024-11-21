@@ -20,6 +20,7 @@ import (
 	"nhooyr.io/websocket"
 
 	"cdr.dev/slog"
+
 	"github.com/coder/coder/v2/agent/agentssh"
 	"github.com/coder/coder/v2/coderd/cryptokeys"
 	"github.com/coder/coder/v2/coderd/database/dbtime"
@@ -397,33 +398,75 @@ func (s *Server) HandleSubdomain(middlewares ...func(http.Handler) http.Handler)
 
 			// Use the passed in app middlewares before checking authentication and
 			// passing to the proxy app.
-			mws := chi.Middlewares(append(middlewares, httpmw.WorkspaceAppCors(s.HostnameRegex, app)))
+			mws := chi.Middlewares(append(middlewares,
+				func(next http.Handler) http.Handler {
+					return http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
+						token, ok := ResolveRequest(rw, r, ResolveRequestOptions{
+							Logger:              s.Logger,
+							SignedTokenProvider: s.SignedTokenProvider,
+							DashboardURL:        s.DashboardURL,
+							PathAppBaseURL:      s.AccessURL,
+							AppHostname:         s.Hostname,
+							AppRequest: Request{
+								AccessMethod:      AccessMethodSubdomain,
+								BasePath:          "/",
+								Prefix:            app.Prefix,
+								UsernameOrID:      app.Username,
+								WorkspaceNameOrID: app.WorkspaceName,
+								AgentNameOrID:     app.AgentName,
+								AppSlugOrPort:     app.AppSlugOrPort,
+							},
+							AppPath:  r.URL.Path,
+							AppQuery: r.URL.RawQuery,
+						})
+						if !ok {
+							return
+						}
+
+						passthru := token.CORSBehavior == "passthru"
+						ctx := context.WithValue(r.Context(), "passthru", passthru)
+						ctx = context.WithValue(ctx, "token", token)
+						r = r.WithContext(ctx)
+						next.ServeHTTP(rw, r)
+					})
+				},
+				httpmw.WorkspaceAppCors(s.HostnameRegex, app)),
+			)
 			mws.Handler(http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
 				if !s.handleAPIKeySmuggling(rw, r, AccessMethodSubdomain) {
 					return
 				}
 
-				token, ok := ResolveRequest(rw, r, ResolveRequestOptions{
-					Logger:              s.Logger,
-					SignedTokenProvider: s.SignedTokenProvider,
-					DashboardURL:        s.DashboardURL,
-					PathAppBaseURL:      s.AccessURL,
-					AppHostname:         s.Hostname,
-					AppRequest: Request{
-						AccessMethod:      AccessMethodSubdomain,
-						BasePath:          "/",
-						Prefix:            app.Prefix,
-						UsernameOrID:      app.Username,
-						WorkspaceNameOrID: app.WorkspaceName,
-						AgentNameOrID:     app.AgentName,
-						AppSlugOrPort:     app.AppSlugOrPort,
-					},
-					AppPath:  r.URL.Path,
-					AppQuery: r.URL.RawQuery,
-				})
+				val := r.Context().Value("token")
+				token, ok := val.(*SignedToken)
 				if !ok {
+					httpapi.Write(ctx, rw, http.StatusInternalServerError, codersdk.Response{
+						Message: "Unable to retrieve the signed token for the application.",
+					})
 					return
 				}
+
+				// token, ok := ResolveRequest(rw, r, ResolveRequestOptions{
+				// 	Logger:              s.Logger,
+				// 	SignedTokenProvider: s.SignedTokenProvider,
+				// 	DashboardURL:        s.DashboardURL,
+				// 	PathAppBaseURL:      s.AccessURL,
+				// 	AppHostname:         s.Hostname,
+				// 	AppRequest: Request{
+				// 		AccessMethod:      AccessMethodSubdomain,
+				// 		BasePath:          "/",
+				// 		Prefix:            app.Prefix,
+				// 		UsernameOrID:      app.Username,
+				// 		WorkspaceNameOrID: app.WorkspaceName,
+				// 		AgentNameOrID:     app.AgentName,
+				// 		AppSlugOrPort:     app.AppSlugOrPort,
+				// 	},
+				// 	AppPath:  r.URL.Path,
+				// 	AppQuery: r.URL.RawQuery,
+				// })
+				// if !ok {
+				// 	return
+				// }
 				s.proxyWorkspaceApp(rw, r, *token, r.URL.Path, app)
 			})).ServeHTTP(rw, r.WithContext(ctx))
 		})

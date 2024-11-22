@@ -35,7 +35,6 @@ import (
 	"tailscale.com/util/clientmetric"
 
 	"cdr.dev/slog"
-	"github.com/coder/coder/v2/agent/agentproc"
 	"github.com/coder/coder/v2/agent/agentscripts"
 	"github.com/coder/coder/v2/agent/agentssh"
 	"github.com/coder/coder/v2/agent/proto"
@@ -82,12 +81,7 @@ type Options struct {
 	PrometheusRegistry           *prometheus.Registry
 	ReportMetadataInterval       time.Duration
 	ServiceBannerRefreshInterval time.Duration
-	Syscaller                    agentproc.Syscaller
-	// ModifiedProcesses is used for testing process priority management.
-	ModifiedProcesses chan []*agentproc.Process
-	// ProcessManagementTick is used for testing process priority management.
-	ProcessManagementTick <-chan time.Time
-	BlockFileTransfer     bool
+	BlockFileTransfer            bool
 }
 
 type Client interface {
@@ -147,10 +141,6 @@ func New(options Options) Agent {
 		prometheusRegistry = prometheus.NewRegistry()
 	}
 
-	if options.Syscaller == nil {
-		options.Syscaller = agentproc.NewSyscaller()
-	}
-
 	hardCtx, hardCancel := context.WithCancel(context.Background())
 	gracefulCtx, gracefulCancel := context.WithCancel(hardCtx)
 	a := &agent{
@@ -178,9 +168,6 @@ func New(options Options) Agent {
 		announcementBannersRefreshInterval: options.ServiceBannerRefreshInterval,
 		sshMaxTimeout:                      options.SSHMaxTimeout,
 		subsystems:                         options.Subsystems,
-		syscaller:                          options.Syscaller,
-		modifiedProcs:                      options.ModifiedProcesses,
-		processManagementTick:              options.ProcessManagementTick,
 		logSender:                          agentsdk.NewLogSender(options.Logger),
 		blockFileTransfer:                  options.BlockFileTransfer,
 
@@ -255,13 +242,7 @@ type agent struct {
 	prometheusRegistry *prometheus.Registry
 	// metrics are prometheus registered metrics that will be collected and
 	// labeled in Coder with the agent + workspace.
-	metrics   *agentMetrics
-	syscaller agentproc.Syscaller
-
-	// modifiedProcs is used for testing process priority management.
-	modifiedProcs chan []*agentproc.Process
-	// processManagementTick is used for testing process priority management.
-	processManagementTick <-chan time.Time
+	metrics *agentMetrics
 }
 
 func (a *agent) TailnetConn() *tailnet.Conn {
